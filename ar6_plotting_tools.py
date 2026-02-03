@@ -731,9 +731,258 @@ def plot_kaya_ratios(df_pyam, mode='imps', categories=None, alpha=0.3, figsize=(
 # KAYA DECOMPOSITION PLOT (5-panel figure like IPCC)
 # ============================================================================
 
-def plot_kaya_decomposition(df_pyam, mode='both', categories=None, alpha=0.3, figsize=(8.7, 8.7)):
+def plot_kaya_variable(df_pyam, variable, mode='both', categories=None, alpha=0.3,
+                       ax=None, title=None, ylabel=None, figsize=(5, 3.5)):
+    """
+    Plot a single Kaya variable (CO2, Population, GDP, Energy) over time.
+    
+    Parameters:
+    -----------
+    df_pyam : pyam.IamDataFrame
+        The pyam dataframe containing the data
+    variable : str
+        The variable to plot (e.g., 'Emissions|CO2|Energy and Industrial Processes')
+    mode : str
+        'imps' - Plot only IMPs with colored lines
+        'categories' - Plot all scenarios colored by category  
+        'both' - Plot category-colored scenarios with IMPs highlighted on top
+    categories : list, optional
+        List of categories to include. If None, defaults to ['C1', 'C2', 'C3'].
+    alpha : float
+        Transparency of category lines
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If None, creates new figure.
+    title : str, optional
+        Plot title. If None, uses the variable name.
+    ylabel : str, optional
+        Y-axis label. If None, uses the variable name.
+    figsize : tuple
+        Figure size (only used if ax is None)
+    
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axes objects
+    """
+    # Default categories
+    if categories is None and mode in ['categories', 'both']:
+        cats_to_plot = ['C1', 'C2', 'C3']
+    elif categories is None:
+        cats_to_plot = ALL_CATEGORIES
+    else:
+        cats_to_plot = categories
+    
+    # Create figure if needed
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+        created_fig = True
+    else:
+        fig = ax.get_figure()
+        created_fig = False
+    
+    meta = df_pyam.meta
+    cat_col = _get_category_column(meta)
+    
+    ax.axhline(y=0, color='black', linewidth=0.5)
+    
+    df_filtered = df_pyam.filter(variable=variable)
+    if len(df_filtered) == 0:
+        ax.set_title(f'{title or variable}\n(no data)', fontsize=11)
+        return fig, ax
+        
+    df_ts = df_filtered.timeseries()
+    df_ts = df_ts.reindex(columns=sorted(df_ts.columns))
+    
+    # Plot categories if requested
+    if mode in ['categories', 'both']:
+        for idx in df_ts.index:
+            model, scenario = idx[0], idx[1]
+            try:
+                category = meta.loc[(model, scenario), cat_col]
+                if pd.isna(category) or category not in cats_to_plot:
+                    continue
+                color = CATEGORY_COLORS[category]
+            except:
+                continue
+            
+            years = np.array(df_ts.columns)
+            values = df_ts.loc[idx].values
+            mask = ~np.isnan(values)
+            if mask.sum() > 0:
+                ax.plot(years[mask], values[mask], color=color, alpha=alpha, linewidth=0.5)
+    
+    # Plot IMPs if requested
+    if mode in ['imps', 'both']:
+        for imp_name, scenario_name in IMP_SCENARIOS.items():
+            model_name, imp_color = IMP_DETAILS[imp_name]
+            for idx in df_ts.index:
+                if idx[0] == model_name and idx[1] == scenario_name:
+                    years = np.array(df_ts.columns)
+                    values = df_ts.loc[idx].values
+                    mask = ~np.isnan(values)
+                    if mask.sum() > 0:
+                        ax.plot(years[mask], values[mask], label=imp_name,
+                               color=imp_color, path_effects=IMP_PATH_EFFECT,
+                               linewidth=1.7, zorder=10)
+                    break
+    
+    ax.set_title(title or variable, fontsize=11, fontweight='bold')
+    ax.set_ylabel(ylabel or variable, fontsize=9)
+    ax.set_xlabel('Year', fontsize=9)
+    ax.grid(alpha=0.3)
+    
+    if created_fig:
+        plt.tight_layout()
+        plt.show()
+    
+    return fig, ax
+
+
+def plot_kaya_ratio(df_pyam, numerator, denominator, mode='both', categories=None, alpha=0.3,
+                    ax=None, title=None, ylabel=None, figsize=(5, 3.5)):
+    """
+    Plot a Kaya ratio (e.g., GDP/Population, Energy/GDP, CO2/Energy) over time.
+    
+    Parameters:
+    -----------
+    df_pyam : pyam.IamDataFrame
+        The pyam dataframe containing the data
+    numerator : str
+        The numerator variable (e.g., 'GDP|PPP')
+    denominator : str
+        The denominator variable (e.g., 'Population')
+    mode : str
+        'imps' - Plot only IMPs with colored lines
+        'categories' - Plot all scenarios colored by category  
+        'both' - Plot category-colored scenarios with IMPs highlighted on top
+    categories : list, optional
+        List of categories to include. If None, defaults to ['C1', 'C2', 'C3'].
+    alpha : float
+        Transparency of category lines
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If None, creates new figure.
+    title : str, optional
+        Plot title. If None, generates from variable names.
+    ylabel : str, optional
+        Y-axis label. If None, generates from variable names.
+    figsize : tuple
+        Figure size (only used if ax is None)
+    
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axes objects
+    """
+    # Default categories
+    if categories is None and mode in ['categories', 'both']:
+        cats_to_plot = ['C1', 'C2', 'C3']
+    elif categories is None:
+        cats_to_plot = ALL_CATEGORIES
+    else:
+        cats_to_plot = categories
+    
+    # Create figure if needed
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+        created_fig = True
+    else:
+        fig = ax.get_figure()
+        created_fig = False
+    
+    meta = df_pyam.meta
+    cat_col = _get_category_column(meta)
+    
+    ax.axhline(y=0, color='black', linewidth=0.5)
+    
+    df_num = df_pyam.filter(variable=numerator)
+    df_den = df_pyam.filter(variable=denominator)
+    
+    if len(df_num) == 0 or len(df_den) == 0:
+        ax.set_title(f'{title or "Ratio"}\n(no data)', fontsize=11)
+        return fig, ax
+    
+    ts_num = df_num.timeseries()
+    ts_den = df_den.timeseries()
+    
+    common_years = sorted(set(ts_num.columns) & set(ts_den.columns))
+    ts_num = ts_num[common_years]
+    ts_den = ts_den[common_years]
+    
+    # Create lookup dict for denominator
+    den_lookup = {}
+    for idx_den in ts_den.index:
+        key = (idx_den[0], idx_den[1])
+        den_lookup[key] = idx_den
+    
+    # Plot categories if requested
+    if mode in ['categories', 'both']:
+        for idx_num in ts_num.index:
+            model, scenario = idx_num[0], idx_num[1]
+            key = (model, scenario)
+            
+            if key not in den_lookup:
+                continue
+            
+            try:
+                category = meta.loc[(model, scenario), cat_col]
+                if pd.isna(category) or category not in cats_to_plot:
+                    continue
+                color = CATEGORY_COLORS[category]
+            except:
+                continue
+            
+            idx_den = den_lookup[key]
+            ratio = ts_num.loc[idx_num].values / ts_den.loc[idx_den].values
+            years = np.array(common_years)
+            mask = ~np.isnan(ratio) & ~np.isinf(ratio)
+            if mask.sum() > 0:
+                ax.plot(years[mask], ratio[mask], color=color, alpha=alpha, linewidth=0.5)
+    
+    # Plot IMPs if requested
+    if mode in ['imps', 'both']:
+        for imp_name, scenario_name in IMP_SCENARIOS.items():
+            model_name, imp_color = IMP_DETAILS[imp_name]
+            key = (model_name, scenario_name)
+            
+            if key not in den_lookup:
+                continue
+            
+            for idx_num in ts_num.index:
+                if idx_num[0] == model_name and idx_num[1] == scenario_name:
+                    idx_den = den_lookup[key]
+                    ratio = ts_num.loc[idx_num].values / ts_den.loc[idx_den].values
+                    years = np.array(common_years)
+                    mask = ~np.isnan(ratio) & ~np.isinf(ratio)
+                    if mask.sum() > 0:
+                        ax.plot(years[mask], ratio[mask], label=imp_name,
+                               color=imp_color, path_effects=IMP_PATH_EFFECT,
+                               linewidth=1.7, zorder=10)
+                    break
+    
+    # Generate default title/ylabel from variable names
+    num_short = numerator.split('|')[-1] if '|' in numerator else numerator
+    den_short = denominator.split('|')[-1] if '|' in denominator else denominator
+    default_title = f'{num_short} / {den_short}'
+    
+    ax.set_title(title or default_title, fontsize=11, fontweight='bold')
+    ax.set_ylabel(ylabel or default_title, fontsize=9)
+    ax.set_xlabel('Year', fontsize=9)
+    ax.grid(alpha=0.3)
+    
+    if created_fig:
+        plt.tight_layout()
+        plt.show()
+    
+    return fig, ax
+
+
+def plot_kaya_decomposition(df_pyam, mode='both', categories=None, alpha=0.3, figsize=(8.7, 8.7),
+                            co2_var='Emissions|CO2|Energy and Industrial Processes',
+                            pop_var='Population',
+                            gdp_var='GDP|PPP',
+                            energy_var='Primary Energy'):
     """
     Plot the full Kaya decomposition in a 5-panel figure (3 top, 2 bottom + legend).
+    
+    Uses plot_kaya_variable() and plot_kaya_ratio() for each panel.
     
     Layout:
         Row 1: CO2 Emissions | Population | GDP per Capita
@@ -749,11 +998,19 @@ def plot_kaya_decomposition(df_pyam, mode='both', categories=None, alpha=0.3, fi
         'both' - Plot category-colored scenarios with IMPs highlighted on top
     categories : list, optional
         List of categories to include (e.g., ['C1', 'C2', 'C3']). 
-        If None, defaults to Paris-compliant categories ['C1', 'C2', 'C3'] for 'categories'/'both' mode.
+        If None, defaults to Paris-compliant categories ['C1', 'C2', 'C3'].
     alpha : float
-        Transparency of category lines (only used when mode is 'categories' or 'both')
+        Transparency of category lines
     figsize : tuple
         Size of the figure (width, height)
+    co2_var : str
+        Variable name for CO2 emissions (default: 'Emissions|CO2|Energy and Industrial Processes')
+    pop_var : str
+        Variable name for Population (default: 'Population')
+    gdp_var : str
+        Variable name for GDP (default: 'GDP|PPP')
+    energy_var : str
+        Variable name for Primary Energy (default: 'Primary Energy')
     
     Returns:
     --------
@@ -761,14 +1018,11 @@ def plot_kaya_decomposition(df_pyam, mode='both', categories=None, alpha=0.3, fi
     
     Examples:
     ---------
-    # Plot only IMPs
-    plot_kaya_decomposition(df_pyam, mode='imps')
-    
-    # Plot Paris-compliant scenarios with IMPs
+    # Plot with default variables
     plot_kaya_decomposition(df_pyam, mode='both', categories=['C1', 'C2', 'C3'])
     
-    # Plot all scenarios by category
-    plot_kaya_decomposition(df_pyam, mode='categories', categories=['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'])
+    # Plot with custom variables
+    plot_kaya_decomposition(df_pyam, co2_var='Emissions|CO2', energy_var='Final Energy')
     """
     # Default to Paris-compliant categories for background
     if categories is None and mode in ['categories', 'both']:
@@ -780,169 +1034,36 @@ def plot_kaya_decomposition(df_pyam, mode='both', categories=None, alpha=0.3, fi
     
     fig, axs = plt.subplots(2, 3, figsize=figsize)
     
-    meta = df_pyam.meta
-    cat_col = _get_category_column(meta)
-    
-    # Define variables and ratios for each panel
     # Row 1: CO2, Population, GDP/capita
-    # Row 2: Legend (blank), Energy/GDP, CO2/Energy
-    panels_config = [
-        # (type, variable_or_ratio, ylabel, title, position)
-        ('var', 'Emissions|CO2|Energy and Industrial Processes', 'Mt CO2/yr', 'CO2 Emissions', (0, 0)),
-        ('var', 'Population', 'Billion people', 'Population', (0, 1)),
-        ('ratio', ('GDP|PPP', 'Population'), 'Billion US$2010/Billion people', 'GDP per Capita', (0, 2)),
-        ('legend', None, None, None, (1, 0)),  # Legend panel
-        ('ratio', ('Primary Energy', 'GDP|PPP'), 'EJ/Billion US$2010', 'Energy Intensity (E/GDP)', (1, 1)),
-        ('ratio', ('Emissions|CO2|Energy and Industrial Processes', 'Primary Energy'), 'Mt CO2/EJ', 'Carbon Intensity (CO2/E)', (1, 2)),
-    ]
+    plot_kaya_variable(df_pyam, co2_var, mode=mode, categories=cats_to_plot, alpha=alpha,
+                       ax=axs[0, 0], title='CO2 Emissions', ylabel='Mt CO2/yr')
     
-    # Helper to plot a single variable
-    def plot_variable(ax, var):
-        ax.axhline(y=0, color='black', linewidth=0.5)
-        
-        df_filtered = df_pyam.filter(variable=var)
-        if len(df_filtered) == 0:
-            return
-            
-        df_ts = df_filtered.timeseries()
-        df_ts = df_ts.reindex(columns=sorted(df_ts.columns))
-        
-        # Plot categories if requested
-        if mode in ['categories', 'both']:
-            for idx in df_ts.index:
-                model, scenario = idx[0], idx[1]
-                try:
-                    category = meta.loc[(model, scenario), cat_col]
-                    if pd.isna(category) or category not in cats_to_plot:
-                        continue
-                    color = CATEGORY_COLORS[category]
-                except:
-                    continue
-                
-                years = np.array(df_ts.columns)
-                values = df_ts.loc[idx].values
-                mask = ~np.isnan(values)
-                if mask.sum() > 0:
-                    ax.plot(years[mask], values[mask], color=color, alpha=alpha, linewidth=0.5)
-        
-        # Plot IMPs if requested
-        if mode in ['imps', 'both']:
-            for imp_name, scenario_name in IMP_SCENARIOS.items():
-                model_name, imp_color = IMP_DETAILS[imp_name]
-                for idx in df_ts.index:
-                    if idx[0] == model_name and idx[1] == scenario_name:
-                        years = np.array(df_ts.columns)
-                        values = df_ts.loc[idx].values
-                        mask = ~np.isnan(values)
-                        if mask.sum() > 0:
-                            ax.plot(years[mask], values[mask], label=imp_name,
-                                   color=imp_color, path_effects=IMP_PATH_EFFECT,
-                                   linewidth=1.7, zorder=10)
-                        break
+    plot_kaya_variable(df_pyam, pop_var, mode=mode, categories=cats_to_plot, alpha=alpha,
+                       ax=axs[0, 1], title='Population', ylabel='Billion people')
     
-    # Helper to plot a ratio
-    def plot_ratio(ax, var_num, var_den):
-        ax.axhline(y=0, color='black', linewidth=0.5)
-        
-        df_num = df_pyam.filter(variable=var_num)
-        df_den = df_pyam.filter(variable=var_den)
-        
-        if len(df_num) == 0 or len(df_den) == 0:
-            return
-        
-        ts_num = df_num.timeseries()
-        ts_den = df_den.timeseries()
-        
-        common_years = sorted(set(ts_num.columns) & set(ts_den.columns))
-        ts_num = ts_num[common_years]
-        ts_den = ts_den[common_years]
-        
-        # Create lookup dict for denominator
-        den_lookup = {}
-        for idx_den in ts_den.index:
-            key = (idx_den[0], idx_den[1])
-            den_lookup[key] = idx_den
-        
-        # Plot categories if requested
-        if mode in ['categories', 'both']:
-            for idx_num in ts_num.index:
-                model, scenario = idx_num[0], idx_num[1]
-                key = (model, scenario)
-                
-                if key not in den_lookup:
-                    continue
-                
-                try:
-                    category = meta.loc[(model, scenario), cat_col]
-                    if pd.isna(category) or category not in cats_to_plot:
-                        continue
-                    color = CATEGORY_COLORS[category]
-                except:
-                    continue
-                
-                idx_den = den_lookup[key]
-                ratio = ts_num.loc[idx_num].values / ts_den.loc[idx_den].values
-                years = np.array(common_years)
-                mask = ~np.isnan(ratio) & ~np.isinf(ratio)
-                if mask.sum() > 0:
-                    ax.plot(years[mask], ratio[mask], color=color, alpha=alpha, linewidth=0.5)
-        
-        # Plot IMPs if requested
-        if mode in ['imps', 'both']:
-            for imp_name, scenario_name in IMP_SCENARIOS.items():
-                model_name, imp_color = IMP_DETAILS[imp_name]
-                key = (model_name, scenario_name)
-                
-                if key not in den_lookup:
-                    continue
-                
-                for idx_num in ts_num.index:
-                    if idx_num[0] == model_name and idx_num[1] == scenario_name:
-                        idx_den = den_lookup[key]
-                        ratio = ts_num.loc[idx_num].values / ts_den.loc[idx_den].values
-                        years = np.array(common_years)
-                        mask = ~np.isnan(ratio) & ~np.isinf(ratio)
-                        if mask.sum() > 0:
-                            ax.plot(years[mask], ratio[mask], label=imp_name,
-                                   color=imp_color, path_effects=IMP_PATH_EFFECT,
-                                   linewidth=1.7, zorder=10)
-                        break
+    plot_kaya_ratio(df_pyam, gdp_var, pop_var, mode=mode, categories=cats_to_plot, alpha=alpha,
+                    ax=axs[0, 2], title='GDP per Capita', ylabel='Billion US$2010/Billion people')
     
-    # Plot each panel
-    for panel_type, var_info, ylabel, title, pos in panels_config:
-        ax = axs[pos[0], pos[1]]
-        
-        if panel_type == 'legend':
-            # Create legend panel
-            ax.axis('off')
-            handles = []
-            
-            # Add IMPs to legend
-            if mode in ['imps', 'both']:
-                for imp_name in IMP_SCENARIOS.keys():
-                    _, imp_color = IMP_DETAILS[imp_name]
-                    handles.append(plt.Line2D([], [], color=imp_color, label=imp_name, 
-                                             linewidth=2, path_effects=IMP_PATH_EFFECT))
-            
-            # Add category legend if showing categories
-            if mode in ['categories', 'both']:
-                handles.append(plt.Line2D([], [], color='grey', label='Paris-compliant', 
-                                         linewidth=0.7, alpha=0.5))
-            
-            ax.legend(handles=handles, loc='center', frameon=False, ncol=1, fontsize=10)
-            continue
-        
-        elif panel_type == 'var':
-            plot_variable(ax, var_info)
-        
-        elif panel_type == 'ratio':
-            var_num, var_den = var_info
-            plot_ratio(ax, var_num, var_den)
-        
-        ax.set_title(title, fontsize=11, fontweight='bold')
-        ax.set_ylabel(ylabel, fontsize=9)
-        ax.set_xlabel('Year', fontsize=9)
-        ax.grid(alpha=0.3)
+    # Row 2: Legend, Energy/GDP, CO2/Energy
+    # Legend panel
+    ax_legend = axs[1, 0]
+    ax_legend.axis('off')
+    handles = []
+    if mode in ['imps', 'both']:
+        for imp_name in IMP_SCENARIOS.keys():
+            _, imp_color = IMP_DETAILS[imp_name]
+            handles.append(plt.Line2D([], [], color=imp_color, label=imp_name, 
+                                     linewidth=2, path_effects=IMP_PATH_EFFECT))
+    if mode in ['categories', 'both']:
+        handles.append(plt.Line2D([], [], color='grey', label='Paris-compliant', 
+                                 linewidth=0.7, alpha=0.5))
+    ax_legend.legend(handles=handles, loc='center', frameon=False, ncol=1, fontsize=10)
+    
+    plot_kaya_ratio(df_pyam, energy_var, gdp_var, mode=mode, categories=cats_to_plot, alpha=alpha,
+                    ax=axs[1, 1], title='Energy Intensity (E/GDP)', ylabel='EJ/Billion US$2010')
+    
+    plot_kaya_ratio(df_pyam, co2_var, energy_var, mode=mode, categories=cats_to_plot, alpha=alpha,
+                    ax=axs[1, 2], title='Carbon Intensity (CO2/E)', ylabel='Mt CO2/EJ')
     
     # Title
     mode_labels = {
@@ -1098,7 +1219,7 @@ def create_kaya_explorer(df_pyam):
                 print("\n" + "=" * 55)
                 print("⚠️ Ratios de Kaya non calculables (variables manquantes)")
     
-    def update_ratio(imp_name, numerator, denominator):
+    def update_ratio(imp_name, numerator, denominator, year):
         """Update the ratio plot"""
         with ratio_output:
             clear_output(wait=True)
@@ -1132,6 +1253,10 @@ def create_kaya_explorer(df_pyam):
                 ax.plot(years[mask], ratio[mask], color=imp_color, linewidth=2.5,
                        path_effects=IMP_PATH_EFFECT)
                 ax.axhline(y=0, color='black', linewidth=0.5)
+                
+                # Add vertical line for selected year
+                ax.axvline(x=year, color='black', linestyle='--', linewidth=0.75, alpha=0.7)
+                
                 ax.set_xlabel('Année')
                 ax.set_ylabel(f'{numerator} / {denominator}')
                 ax.set_title(f'{numerator} ÷ {denominator}', fontsize=12, fontweight='bold')
@@ -1157,22 +1282,23 @@ def create_kaya_explorer(df_pyam):
     
     # ===== Connect widgets =====
     widgets.interactive_output(update_values, {'imp_name': imp_dropdown, 'year': year_slider})
-    widgets.interactive_output(update_ratio, {'imp_name': imp_dropdown, 'numerator': numerator_dropdown, 'denominator': denominator_dropdown})
+    widgets.interactive_output(update_ratio, {'imp_name': imp_dropdown, 'numerator': numerator_dropdown, 'denominator': denominator_dropdown, 'year': year_slider})
     
     # Trigger initial updates
     update_values(imp_dropdown.value, year_slider.value)
-    update_ratio(imp_dropdown.value, numerator_dropdown.value, denominator_dropdown.value)
+    update_ratio(imp_dropdown.value, numerator_dropdown.value, denominator_dropdown.value, year_slider.value)
     
     # Watch for changes
     def on_imp_change(change):
         update_values(imp_dropdown.value, year_slider.value)
-        update_ratio(imp_dropdown.value, numerator_dropdown.value, denominator_dropdown.value)
+        update_ratio(imp_dropdown.value, numerator_dropdown.value, denominator_dropdown.value, year_slider.value)
     
     def on_year_change(change):
         update_values(imp_dropdown.value, year_slider.value)
+        update_ratio(imp_dropdown.value, numerator_dropdown.value, denominator_dropdown.value, year_slider.value)
     
     def on_ratio_change(change):
-        update_ratio(imp_dropdown.value, numerator_dropdown.value, denominator_dropdown.value)
+        update_ratio(imp_dropdown.value, numerator_dropdown.value, denominator_dropdown.value, year_slider.value)
     
     imp_dropdown.observe(on_imp_change, names='value')
     year_slider.observe(on_year_change, names='value')
@@ -1236,18 +1362,292 @@ def create_kaya_explorer(df_pyam):
 
 
 # ============================================================================
-# DATABASE COMPOSITION PLOTS (Model Families & SSP)
+# DATABASE COMPOSITION ANALYSIS (Model Families & SSP)
 # ============================================================================
+# These functions allow students to see the main steps of analyzing
+# the AR6 database composition:
+#   1. assign_model_families() - Normalize model names into families
+#   2. assign_assessment_status() - Classify scenarios by climate assessment
+#   3. count_scenarios_by_group() - Count scenarios by any grouping
+#   4. plot_database_composition() - Create the final visualization
+# ============================================================================
+
+import re
+
+# Known model families for normalization
+MODEL_FAMILIES = ['MESSAGE', 'REMIND', 'AIM', 'GCAM', 'TIAM', 'WITCH', 'IMAGE', 'POLES', 'GEM-E3']
+
+# Colors for assessment status
+ASSESSMENT_STATUS_COLORS = {
+    'Climate assessed (C1-C8)': '#66C2A5',  # Teal green
+    'No assessment': '#8DA0CB',              # Blue/purple
+    'Failed vetting': '#EDB120',             # Yellow/orange
+}
+
+
+def assign_model_families(meta, min_scenarios=50):
+    """
+    Step 1: Assign model family names by normalizing model versions.
+    
+    This function:
+    - Extracts the base model name (removes version numbers like "1.0", "2.1-4.3")
+    - Normalizes known model families (MESSAGE, REMIND, IMAGE, etc.)
+    - Groups small families (< min_scenarios) into "Other"
+    
+    Parameters:
+    -----------
+    meta : pd.DataFrame
+        The metadata DataFrame from df_pyam.meta
+    min_scenarios : int
+        Minimum number of scenarios to keep a model family separate (default: 50)
+    
+    Returns:
+    --------
+    pd.DataFrame : Copy of meta with 'Model' and 'Model_Family' columns added
+    
+    Example:
+    --------
+    >>> meta_enriched = assign_model_families(df_pyam.meta)
+    >>> meta_enriched['Model_Family'].value_counts()
+    """
+    meta_enriched = meta.copy()
+    meta_enriched['Model'] = meta_enriched.index.get_level_values('model')
+    
+    def _extract_model_family(model_name):
+        """Extract the model family name by removing version numbers."""
+        # Remove version patterns like "1.0", "2.1-4.3", "5.3", etc.
+        family = re.sub(r'\s*\d+(\.\d+)?(-\d+(\.\d+)?)?$', '', model_name)
+        family = family.strip()
+        
+        # Normalize known model families (case-insensitive)
+        model_upper = family.upper()
+        for known_family in MODEL_FAMILIES:
+            if known_family.replace('-', '') in model_upper.replace('-', ''):
+                return known_family
+        return family
+    
+    meta_enriched['Model_Family'] = meta_enriched['Model'].apply(_extract_model_family)
+    
+    # Group small model families into "Other"
+    family_counts = meta_enriched['Model_Family'].value_counts()
+    small_families = family_counts[family_counts < min_scenarios].index
+    meta_enriched['Model_Family'] = meta_enriched['Model_Family'].apply(
+        lambda x: 'Other' if x in small_families else x
+    )
+    
+    return meta_enriched
+
+
+def assign_assessment_status(meta):
+    """
+    Step 2: Classify scenarios by their climate assessment status.
+    
+    Categories:
+    - 'Climate assessed (C1-C8)': Scenarios with a climate category
+    - 'Failed vetting': Scenarios that failed the vetting process
+    - 'No assessment': Scenarios without climate assessment
+    
+    Parameters:
+    -----------
+    meta : pd.DataFrame
+        The metadata DataFrame (can be from assign_model_families output)
+    
+    Returns:
+    --------
+    pd.DataFrame : Copy of meta with 'Assessment_Status' column added
+    
+    Example:
+    --------
+    >>> meta_enriched = assign_assessment_status(meta_enriched)
+    >>> meta_enriched['Assessment_Status'].value_counts()
+    """
+    meta_enriched = meta.copy()
+    cat_col = _get_category_column(meta_enriched)
+    
+    def _get_assessment_status(category):
+        """Classify a single scenario by its climate assessment status."""
+        if pd.isna(category):
+            return 'No assessment'
+        elif category in ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8']:
+            return 'Climate assessed (C1-C8)'
+        elif 'failed' in str(category).lower() or 'exclude' in str(category).lower():
+            return 'Failed vetting'
+        else:
+            return 'No assessment'
+    
+    meta_enriched['Assessment_Status'] = meta_enriched[cat_col].apply(_get_assessment_status)
+    
+    return meta_enriched
+
+
+def assign_ssp_family(meta):
+    """
+    Step 2b (optional): Clean and assign SSP family names.
+    
+    Converts numeric SSP values (1-5) to readable names (SSP1-SSP5).
+    
+    Parameters:
+    -----------
+    meta : pd.DataFrame
+        The metadata DataFrame
+    
+    Returns:
+    --------
+    pd.DataFrame : Copy of meta with 'SSP_Family' column added
+    
+    Example:
+    --------
+    >>> meta_enriched = assign_ssp_family(meta_enriched)
+    >>> meta_enriched['SSP_Family'].value_counts()
+    """
+    meta_enriched = meta.copy()
+    ssp_col = 'Ssp_family' if 'Ssp_family' in meta_enriched.columns else None
+    
+    if ssp_col is None:
+        print("⚠️ SSP family column not found in metadata")
+        meta_enriched['SSP_Family'] = 'Unknown'
+        return meta_enriched
+    
+    def _classify_ssp(val):
+        """Convert SSP numeric value to readable name."""
+        if pd.isna(val):
+            return 'Other/Unknown'
+        try:
+            val_num = int(float(val))
+            if 1 <= val_num <= 5:
+                return f'SSP{val_num}'
+        except:
+            pass
+        return 'Other/Unknown'
+    
+    meta_enriched['SSP_Family'] = meta_enriched[ssp_col].apply(_classify_ssp)
+    
+    return meta_enriched
+
+
+def count_scenarios_by_group(meta, group_col, status_col='Assessment_Status', n_top=None):
+    """
+    Step 3: Count scenarios by a grouping column, split by assessment status.
+    
+    Parameters:
+    -----------
+    meta : pd.DataFrame
+        The enriched metadata (after assign_model_families and assign_assessment_status)
+    group_col : str
+        Column to group by (e.g., 'Model_Family', 'SSP_Family')
+    status_col : str
+        Column with assessment status (default: 'Assessment_Status')
+    n_top : int, optional
+        If provided, keep only top N groups by total count
+    
+    Returns:
+    --------
+    pd.DataFrame : Pivot table with groups as rows and status as columns
+    
+    Example:
+    --------
+    >>> model_counts = count_scenarios_by_group(meta_enriched, 'Model_Family', n_top=10)
+    >>> model_counts
+    """
+    # Count by group and status
+    counts = meta.groupby([group_col, status_col]).size().unstack(fill_value=0)
+    
+    # Reorder columns for consistent display
+    status_order = ['Climate assessed (C1-C8)', 'No assessment', 'Failed vetting']
+    counts = counts[[s for s in status_order if s in counts.columns]]
+    
+    # Sort by total count
+    counts['_total'] = counts.sum(axis=1)
+    counts = counts.sort_values('_total', ascending=False)
+    
+    # Keep only top N if specified
+    if n_top is not None:
+        # Move "Other" to the end if present
+        if 'Other' in counts.index:
+            other_row = counts.loc[['Other']]
+            counts = counts.drop('Other')
+            counts = counts.head(n_top - 1)
+            counts = pd.concat([counts, other_row])
+        else:
+            counts = counts.head(n_top)
+    
+    # Remove helper column
+    counts = counts.drop('_total', axis=1)
+    
+    # For SSP_Family, reorder as SSP1-SSP5, then Other/Unknown
+    if group_col == 'SSP_Family':
+        ssp_order = ['SSP1', 'SSP2', 'SSP3', 'SSP4', 'SSP5', 'Other/Unknown']
+        counts = counts.reindex([s for s in ssp_order if s in counts.index])
+    
+    return counts
+
+
+def plot_scenario_counts(counts, ax=None, title='Scenarios by Group', xlabel='', 
+                         colors=None, figsize=(6, 4)):
+    """
+    Step 4a: Plot a stacked bar chart from scenario counts.
+    
+    Parameters:
+    -----------
+    counts : pd.DataFrame
+        Output from count_scenarios_by_group()
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If None, creates new figure.
+    title : str
+        Plot title
+    xlabel : str
+        X-axis label
+    colors : dict, optional
+        Colors for each status. Defaults to ASSESSMENT_STATUS_COLORS.
+    figsize : tuple
+        Figure size if creating new figure
+    
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axes objects
+    
+    Example:
+    --------
+    >>> fig, ax = plot_scenario_counts(model_counts, title='By Model Family')
+    """
+    if colors is None:
+        colors = ASSESSMENT_STATUS_COLORS
+    
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+        created_fig = True
+    else:
+        fig = ax.get_figure()
+        created_fig = False
+    
+    # Plot stacked bar chart
+    counts.plot(kind='bar', stacked=True, ax=ax,
+                color=[colors.get(s, '#666666') for s in counts.columns],
+                edgecolor='black', linewidth=0.5)
+    
+    ax.set_ylabel('Number of Scenarios', fontsize=11)
+    ax.set_xlabel(xlabel, fontsize=11)
+    ax.set_title(title, fontsize=13, fontweight='bold')
+    ax.tick_params(axis='x', rotation=45, labelsize=9)
+    ax.legend(title='Assessment Status', fontsize=8)
+    
+    if created_fig:
+        plt.tight_layout()
+        plt.show()
+    
+    return fig, ax
+
 
 def plot_database_composition(df_pyam, n_top_models=15, figsize=(10.7, 4.7)):
     """
     Plot database composition showing model families and SSP distribution.
     
-    Creates two vertical stacked bar charts:
-    1. Scenarios by Model Family (top N models)
-    2. Scenarios by SSP Family
-    
-    Each bar is stacked by assessment status (Climate assessed, No assessment, Failed vetting).
+    This is a convenience function that runs all steps:
+    1. assign_model_families() - Normalize model names
+    2. assign_assessment_status() - Classify by climate assessment
+    3. assign_ssp_family() - Clean SSP names
+    4. count_scenarios_by_group() - Count by model and SSP
+    5. plot_scenario_counts() - Create visualizations
     
     Parameters:
     -----------
@@ -1261,149 +1661,74 @@ def plot_database_composition(df_pyam, n_top_models=15, figsize=(10.7, 4.7)):
     Returns:
     --------
     fig, axes : matplotlib figure and axes objects
+    
+    Example (step by step):
+    -----------------------
+    # You can also run each step manually to see intermediate results:
+    
+    # Step 1: Assign model families
+    meta = assign_model_families(df_pyam.meta)
+    print(meta['Model_Family'].value_counts())
+    
+    # Step 2: Assign assessment status
+    meta = assign_assessment_status(meta)
+    print(meta['Assessment_Status'].value_counts())
+    
+    # Step 3: Count scenarios
+    model_counts = count_scenarios_by_group(meta, 'Model_Family', n_top=10)
+    print(model_counts)
+    
+    # Step 4: Plot
+    plot_scenario_counts(model_counts, title='Scenarios by Model Family')
     """
-    import re
-    import seaborn as sns
+    # Step 1: Assign model families
+    meta = assign_model_families(df_pyam.meta, min_scenarios=50)
     
-    # Get metadata with model information
-    meta = df_pyam.meta
-    cat_col = _get_category_column(meta)
+    # Step 2: Assign assessment status
+    meta = assign_assessment_status(meta)
     
-    meta_analysis = meta.copy()
-    meta_analysis['Model'] = meta_analysis.index.get_level_values('model')
+    # Step 2b: Assign SSP families
+    meta = assign_ssp_family(meta)
     
-    # Model families to normalize (case-insensitive matching)
-    MODEL_FAMILIES = ['MESSAGE', 'REMIND', 'AIM', 'GCAM', 'TIAM', 'WITCH', 'IMAGE', 'POLES', 'GEM-E3']
+    # Step 3: Count scenarios
+    model_counts = count_scenarios_by_group(meta, 'Model_Family', n_top=n_top_models)
+    ssp_counts = count_scenarios_by_group(meta, 'SSP_Family')
     
-    def extract_model_family(model_name):
-        """Extract the model family name by removing version numbers and normalizing known families."""
-        # Remove version patterns like "1.0", "2.1-4.3", "5.3", etc.
-        family = re.sub(r'\s*\d+(\.\d+)?(-\d+(\.\d+)?)?$', '', model_name)
-        family = family.strip()
-        
-        # Normalize known model families (case-insensitive)
-        model_upper = family.upper()
-        for known_family in MODEL_FAMILIES:
-            if known_family.replace('-', '') in model_upper.replace('-', ''):
-                return known_family
-        return family
+    # Reorder SSP for display
+    ssp_order = ['SSP1', 'SSP2', 'SSP3', 'SSP4', 'SSP5', 'Other/Unknown']
+    ssp_counts = ssp_counts.reindex([s for s in ssp_order if s in ssp_counts.index])
     
-    meta_analysis['Model_Family'] = meta_analysis['Model'].apply(extract_model_family)
-    
-    # Group small model families (< 50 scenarios) into "Other"
-    family_counts = meta_analysis['Model_Family'].value_counts()
-    small_families = family_counts[family_counts < 50].index
-    meta_analysis['Model_Family'] = meta_analysis['Model_Family'].apply(
-        lambda x: 'Other' if x in small_families else x
-    )
-    
-    # Create assessment status column
-    def get_assessment_status(category):
-        """Classify scenarios by their climate assessment status."""
-        if pd.isna(category):
-            return 'No assessment'
-        elif category in ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8']:
-            return 'Climate assessed (C1-C8)'
-        elif 'failed' in str(category).lower() or 'exclude' in str(category).lower():
-            return 'Failed vetting'
-        else:
-            return 'No assessment'
-    
-    meta_analysis['Assessment_Status'] = meta_analysis[cat_col].apply(get_assessment_status)
-    
-    # Find SSP-related column
-    ssp_col = 'Ssp_family' if 'Ssp_family' in meta_analysis.columns else None
-    
-    # Custom colors as specified
-    status_colors = {
-        'Climate assessed (C1-C8)': '#66C2A5',  # Teal green
-        'No assessment': '#8DA0CB',              # Blue/purple
-        'Failed vetting': '#EDB120',             # Yellow/orange
-    }
-    
-    # Reorder columns for consistent stacking
-    status_order = ['Climate assessed (C1-C8)', 'No assessment', 'Failed vetting']
-    
-    # Create figure with two subplots
+    # Step 4: Create figure with two subplots
     fig, axes = plt.subplots(1, 2, figsize=figsize)
     
-    # ===== PLOT 1: Model Families (Vertical Stacked Bar) =====
-    ax1 = axes[0]
-    
-    # Count by model family and assessment status
-    model_counts = meta_analysis.groupby(['Model_Family', 'Assessment_Status']).size().unstack(fill_value=0)
-    
-    # Sort by total count and take top N model families
-    model_totals = model_counts.sum(axis=1).sort_values(ascending=False)
-    top_models = model_totals.head(n_top_models).index.tolist()
-    
-    # Move "Other" to the end if present
-    if 'Other' in top_models:
-        top_models.remove('Other')
-        top_models.append('Other')
-    
-    model_counts = model_counts.loc[top_models]
-    
-    # Reorder columns
-    model_counts = model_counts[[s for s in status_order if s in model_counts.columns]]
-    
-    # Plot vertical stacked bar chart
-    model_counts.plot(kind='bar', stacked=True, ax=ax1, 
-                      color=[status_colors.get(s, '#666666') for s in model_counts.columns],
+    # Plot model families
+    model_counts.plot(kind='bar', stacked=True, ax=axes[0],
+                      color=[ASSESSMENT_STATUS_COLORS.get(s, '#666666') for s in model_counts.columns],
                       edgecolor='black', linewidth=0.5)
+    axes[0].set_ylabel('Number of Scenarios', fontsize=11)
+    axes[0].set_xlabel('')
+    axes[0].set_title(f'Scenarios by Model Family\n(Top {n_top_models} models)', fontsize=13, fontweight='bold')
+    axes[0].get_legend().remove()
+    axes[0].tick_params(axis='x', rotation=45, labelsize=9)
     
-    ax1.set_ylabel('Number of Scenarios', fontsize=11)
-    ax1.set_xlabel('')
-    ax1.set_title(f'Scenarios by Model Family\n(Top {n_top_models} models)', fontsize=13, fontweight='bold')
-    ax1.get_legend().remove()  # Remove individual legend, will use shared legend
-    ax1.tick_params(axis='x', rotation=45, labelsize=9)
-    
-    # ===== PLOT 2: SSP Families (Vertical Stacked Bar) =====
-    ax2 = axes[1]
-    
-    if ssp_col:
-        # Clean SSP values - the column contains numeric values 1-5
-        def classify_ssp(val):
-            if pd.isna(val):
-                return 'Other/Unknown'
-            try:
-                val_num = int(float(val))
-                if 1 <= val_num <= 5:
-                    return f'SSP{val_num}'
-            except:
-                pass
-            return 'Other/Unknown'
-        
-        meta_analysis['SSP_Clean'] = meta_analysis[ssp_col].apply(classify_ssp)
-        
-        # Count by SSP and assessment status
-        ssp_counts = meta_analysis.groupby(['SSP_Clean', 'Assessment_Status']).size().unstack(fill_value=0)
-        
-        # Order SSPs
-        ssp_order = ['SSP1', 'SSP2', 'SSP3', 'SSP4', 'SSP5', 'Other/Unknown']
-        ssp_counts = ssp_counts.reindex([s for s in ssp_order if s in ssp_counts.index])
-        
-        # Reorder columns
-        ssp_counts = ssp_counts[[s for s in status_order if s in ssp_counts.columns]]
-        
-        # Plot
-        ssp_counts.plot(kind='bar', stacked=True, ax=ax2,
-                        color=[status_colors.get(s, '#666666') for s in ssp_counts.columns],
+    # Plot SSP families
+    if 'SSP_Family' in meta.columns and meta['SSP_Family'].nunique() > 1:
+        ssp_counts.plot(kind='bar', stacked=True, ax=axes[1],
+                        color=[ASSESSMENT_STATUS_COLORS.get(s, '#666666') for s in ssp_counts.columns],
                         edgecolor='black', linewidth=0.5)
-        
-        ax2.set_xlabel('SSP Family', fontsize=11)
-        ax2.set_ylabel('Number of Scenarios', fontsize=11)
-        ax2.set_title('Scenarios by SSP Family', fontsize=13, fontweight='bold')
-        ax2.get_legend().remove()  # Remove individual legend
-        ax2.tick_params(axis='x', rotation=0)
+        axes[1].set_xlabel('SSP Family', fontsize=11)
+        axes[1].set_ylabel('Number of Scenarios', fontsize=11)
+        axes[1].set_title('Scenarios by SSP Family', fontsize=13, fontweight='bold')
+        axes[1].get_legend().remove()
+        axes[1].tick_params(axis='x', rotation=0)
     else:
-        ax2.text(0.5, 0.5, 'SSP family data not available', 
-                 ha='center', va='center', fontsize=12, transform=ax2.transAxes)
-        ax2.set_title('Scenarios by SSP Family', fontsize=13, fontweight='bold')
+        axes[1].text(0.5, 0.5, 'SSP family data not available',
+                     ha='center', va='center', fontsize=12, transform=axes[1].transAxes)
+        axes[1].set_title('Scenarios by SSP Family', fontsize=13, fontweight='bold')
     
-    # Add single shared legend outside to the right
-    handles, labels = ax1.get_legend_handles_labels()
-    fig.legend(handles, labels, title='Assessment Status', loc='center left', 
+    # Add shared legend
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, title='Assessment Status', loc='center left',
                bbox_to_anchor=(1, 0.5), fontsize=9)
     
     plt.tight_layout()
